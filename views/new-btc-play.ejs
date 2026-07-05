@@ -1,0 +1,274 @@
+<%
+  // Vue de jeu New Brutal Teenage Crisis (League / LvUP / Défi Coffres), moteur PixiJS.
+  // Charge PixiJS + game.js puis instancie BTCBoot. Le boot émet des CustomEvents window
+  // (btc-score / btc-progress / btc-finished / btc-ready) relayés vers POST /api/results
+  // (game "newBtc" en League, "newBtcDefi" en Défi ; LvUP ne poste pas).
+  const W = 600, H = 460;
+%><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Brutal Teenage Crisis · PixiJS</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <script src="/assets/dev-counter.js"></script>
+  <style>
+    .btc-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 12px; }
+    .btc-frame {
+      position: relative; width: <%= W %>px; height: <%= H %>px;
+      background: #120308; box-shadow: 0 0 28px rgba(255,62,127,.4); border-radius: 6px; overflow: hidden;
+    }
+    .btc-frame canvas { display: block; width: 100%; height: 100%; }
+    .btc-hud { display: flex; gap: 18px; align-items: center; color: #ffd6e6; font: 14px/1 sans-serif; }
+    .btc-hud b { color: #ffe066; }
+    .btc-note { color: #998; font: 12px/1.5 sans-serif; max-width: <%= W %>px; text-align: center; }
+    #btc-status { color: #ff7fb0; font: 12px/1 sans-serif; min-height: 14px; }
+    .btc-tag {
+      display: inline-block; font: 600 11px/1 sans-serif; color: #2a0712; background: #ff3e7f;
+      padding: 4px 8px; border-radius: 6px; letter-spacing: .04em; vertical-align: middle;
+    }
+    .btc-play {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: 22px;
+      align-items: center; justify-content: center; cursor: pointer;
+      background: radial-gradient(circle at 50% 38%, rgba(104,20,52,.55), rgba(18,3,8,.9));
+    }
+    .btc-play[hidden] { display: none; }
+    .btc-play__title { font: 800 34px/1.1 'Segoe UI', sans-serif; letter-spacing: .1em; color: #ffd6e6; text-align: center;
+      text-shadow: 0 0 18px rgba(255,80,150,.8), 0 0 4px rgba(255,120,180,.9); }
+    .btc-play__btn { font: 700 22px/1 sans-serif; color: #2a0712; background: #ff3e7f; border: none;
+      padding: 15px 46px; border-radius: 10px; cursor: pointer; letter-spacing: .04em;
+      box-shadow: 0 6px 24px rgba(255,62,127,.55); transition: transform .1s ease, background .1s ease; }
+    .btc-play__btn:hover { background: #ff6c9c; transform: translateY(-2px); }
+    .btc-dev { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center;
+      padding: 8px 12px; border: 1px dashed #6a2040; border-radius: 8px; max-width: <%= W %>px; }
+    .btc-dev__tag { font: 700 10px/1 sans-serif; letter-spacing: .1em; color: #2a0712; background: #ff3e7f;
+      padding: 4px 7px; border-radius: 5px; }
+    .btc-dev__btn { font: 600 13px/1 sans-serif; color: #ffd6e6; background: #2a1018; border: 1px solid #6a2040;
+      padding: 7px 12px; border-radius: 6px; cursor: pointer; transition: background .1s ease, color .1s ease; }
+    .btc-dev__btn:hover { background: #3a1622; color: #fff; }
+    .btc-dev__btn--danger { color: #ffb0b0; border-color: #6a2020; background: #2a1010; }
+    .btc-dev__btn--danger:hover { background: #3a1616; color: #fff; }
+    /* :not([hidden]) sinon l'ID `display:block` écrase l'attribut hidden → la barre
+       resterait visible en League (où seul le score doit s'afficher). */
+    #btc-progress-box:not([hidden]) { display: block; width: <%= W %>px; }
+    .btc-bar { display: block; box-sizing: border-box; width: 100%; height: 14px; background: #2a1018;
+      border: 1px solid #6a2040; border-radius: 7px; overflow: hidden; }
+    .btc-bar__fill { display: block; height: 100%; width: 0%; background: #ff3e7f; border-radius: 7px;
+      transition: width .25s ease, background .2s ease; }
+  </style>
+</head>
+<body>
+  <header class="banner banner--game">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <span class="banner__title">New Brutal Teenage Crisis <span class="btc-tag">PixiJS</span></span>
+    <span class="banner__sub">Portage Haxe → PixiJS</span>
+  </header>
+
+  <main class="btc-stage">
+    <div class="btc-hud">
+      <span id="btc-score-box">Score : <b id="btc-score">0</b></span>
+      <span id="btc-progress-box" hidden><span class="btc-bar"><span id="btc-bar-fill" class="btc-bar__fill"></span></span></span>
+      <span id="btc-result"></span>
+    </div>
+    <div class="btc-frame">
+      <canvas id="btc-canvas" width="<%= W %>" height="<%= H %>"></canvas>
+      <div id="btc-play" class="btc-play" hidden>
+        <div id="btc-play-title" class="btc-play__title">BRUTAL<br>TEENAGE CRISIS</div>
+        <button id="btc-play-btn" class="btc-play__btn" type="button">▶ Jouer</button>
+      </div>
+    </div>
+    <div id="btc-status">Chargement du moteur…</div>
+    <p class="btc-note">
+      Moteur <strong>PixiJS</strong> natif, jeu compilé depuis les sources <strong>Haxe</strong>
+      (aucun Flash).<br>
+      Flèches ou <strong>ZQSD</strong>/<strong>WASD</strong> pour bouger/foncer · double-tap pour dasher · Espace pour la phase.
+    </p>
+    <div class="btc-dev">
+      <span class="btc-dev__tag">DEV bonus</span>
+      <button class="btc-dev__btn" type="button" data-bonus="1">🌈 Super Power</button>
+      <button class="btc-dev__btn" type="button" data-bonus="0">💣 Bombe</button>
+      <button class="btc-dev__btn" type="button" data-bonus="2">☢️ Méga Bombe</button>
+      <button id="btc-dev-fly" class="btc-dev__btn" type="button">🦇 Monstre volant</button>
+      <button id="btc-dev-killall" class="btc-dev__btn btc-dev__btn--danger" type="button">💀 Tuer tous les monstres</button>
+    </div>
+  </main>
+
+  <!-- Build "legacy" = WebGL + repli Canvas2D. -->
+  <script src="/new-btc/assets/vendor/pixi-legacy.min.js"></script>
+  <script src="/assets/arkadeo-renderer.js"></script>
+  <script src="/new-btc/assets/game.js"></script>
+  <script src="/assets/arkadeo-endgame.js"></script>
+  <script>
+    (function () {
+      var statusEl = document.getElementById("btc-status");
+      var scoreEl  = document.getElementById("btc-score");
+      var resultEl = document.getElementById("btc-result");
+      var startMs  = Date.now();
+
+      if (typeof PIXI === "undefined") { statusEl.textContent = "Erreur : PixiJS non chargé."; return; }
+      if (typeof BTCBoot === "undefined") { statusEl.textContent = "Erreur : game.js (BTCBoot) non chargé."; return; }
+
+      // Fin de partie → arrêt complet du moteur (le ticker est figé ; l'overlay de
+      // fin ci-dessous reste affiché par-dessus le canvas gelé).
+      ArkadeoEndgame.arm({ event: "btc-finished", boot: "BTCBoot" });
+
+      // Score live (émis par Boot.addScore).
+      window.addEventListener("btc-score", function (e) {
+        scoreEl.textContent = (e.detail && e.detail.score) || 0;
+      });
+
+      // Progression LvUP : coffres détruits / total (émis par Boot.emitProgress).
+      // Progression LvUP : barre pleine largeur qui se remplit selon coffres détruits / total.
+      window.addEventListener("btc-progress", function (e) {
+        var d = e.detail || {};
+        var fill = document.getElementById("btc-bar-fill");
+        if (!fill) return;
+        var done = d.total > 0 && d.destroyed >= d.total;
+        var ratio = d.total > 0 ? Math.min(1, (d.destroyed || 0) / d.total) : 0;
+        fill.style.width = Math.round(ratio * 100) + "%";
+        fill.style.background = done ? "#4DF0A0" : "#ff3e7f"; // vert = sortie ouverte
+      });
+
+      // Fin de partie : écran de fin (score / niveau) + bouton qui recharge la page
+      // (état 100% propre ; ?mode=lvup est préservé, donc on enchaîne le niveau suivant
+      // en LvUP - le cookie a déjà avancé à la victoire). Relai vers /api/results.
+      window.addEventListener("btc-finished", function (e) {
+        var d = e.detail || {};
+        isGameOver = true;
+        var lvup = d.mode === "lvup";
+        var defi = d.mode === "defi";
+        var lvl = d.lvupLevel || 1;
+        resultEl.textContent = d.win ? "Victoire !" : "Partie terminée";
+        if (lvup) {
+          // LvUP : pas de score → on affiche seulement le résultat du niveau.
+          playTitle.innerHTML = d.win ? ("NIVEAU " + lvl + "<br>RÉUSSI !") : ("GAME OVER<br>Niveau " + lvl);
+          playBtn.textContent = d.win ? "▶ Niveau suivant" : "↻ Réessayer";
+        } else if (defi) {
+          // Défi Coffres : le « score » = nombre de coffres détruits.
+          playTitle.innerHTML = "GAME OVER"
+            + '<br><span style="font-size:20px;font-weight:600;letter-spacing:.04em">Coffres détruits : ' + (d.score || 0) + "</span>";
+          playBtn.textContent = "↻ Rejouer";
+        } else {
+          playTitle.innerHTML = (d.win ? "VICTOIRE !" : "GAME OVER")
+            + '<br><span style="font-size:20px;font-weight:600;letter-spacing:.04em">Score : ' + (d.score || 0) + "</span>";
+          playBtn.textContent = "↻ Rejouer";
+        }
+        playOverlay.hidden = false;
+        statusEl.textContent = d.win ? "Victoire !" : "Partie terminée.";
+        // Classements : League → game "newBtc" ; Défi Coffres → game "newBtcDefi"
+        // (classement parallèle, score = coffres détruits). La campagne LvUP est une
+        // progression personnelle → on ne l'enregistre PAS (pas de POST en lvup).
+        if (defi) {
+          fetch("/api/results", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              game: "newBtcDefi", mode: "defi",
+              win: !!d.win, score: d.score || 0,
+              durationMs: Date.now() - startMs,
+              devUses: window.__ARK_DEV || 0
+            })
+          }).catch(function () { /* hors-ligne / mongo absent : on ignore */ });
+        } else if (!lvup) {
+          fetch("/api/results", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              game: "newBtc", mode: "league",
+              win: !!d.win, score: d.score || 0,
+              durationMs: Date.now() - startMs,
+              devUses: window.__ARK_DEV || 0
+            })
+          }).catch(function () { /* hors-ligne / mongo absent : on ignore */ });
+        }
+      });
+
+      // Écran « Jouer » : le moteur crée la partie figée puis émet btc-ready ; on
+      // affiche le bouton, et le clic lance réellement la boucle (Boot.startPlay).
+      var playOverlay = document.getElementById("btc-play");
+      var playBtn     = document.getElementById("btc-play-btn");
+      var playTitle   = document.getElementById("btc-play-title");
+      var playStarted = false;
+      var isGameOver  = false;
+      var isLvup = location.search.indexOf("mode=lvup") >= 0;
+      // En LvUP le score est toujours 0 (le Gold ne tombe qu'en League) → on masque le
+      // score et on affiche la progression des coffres à la place.
+      if (isLvup) {
+        var sb = document.getElementById("btc-score-box");
+        var pb = document.getElementById("btc-progress-box");
+        var rb = document.getElementById("btc-result");
+        if (sb) sb.hidden = true;
+        if (rb) rb.hidden = true; // évite le gap flex qui décalait la barre vers la gauche
+        if (pb) pb.hidden = false;
+      }
+      // Mode "Défi Coffres" : le "score" = nombre de coffres détruits → on relabelle la
+      // case score (le <b id="btc-score"> est mis à jour par btc-score, comme en League).
+      var isDefi = location.search.indexOf("mode=defi") >= 0;
+      if (isDefi) {
+        var sbd = document.getElementById("btc-score-box");
+        if (sbd && sbd.firstChild) sbd.firstChild.textContent = "Coffres détruits : ";
+      }
+      function lvupLevel() {
+        var m = document.cookie.match(/newbtc_lvup_level=(\d+)/);
+        return m ? parseInt(m[1], 10) : 1;
+      }
+      window.addEventListener("btc-ready", function () {
+        playOverlay.hidden = false;
+        if (isLvup) {
+          var lv = lvupLevel();
+          playTitle.innerHTML = 'CAMPAGNE LvUP<br>Niveau ' + lv;
+          playBtn.textContent = "▶ Jouer (Niv. " + lv + ")";
+          statusEl.textContent = "LvUP - Niveau " + lv + " : détruis toutes les serrures pour ouvrir la sortie.";
+        } else if (isDefi) {
+          playTitle.innerHTML = 'DÉFI<br>COFFRES';
+          playBtn.textContent = "▶ Jouer";
+          statusEl.textContent = "Défi Coffres : détruis un maximum de coffres avant que les ennemis ne te débordent !";
+        } else {
+          statusEl.textContent = "Prêt - clique sur Jouer.";
+        }
+      });
+      function doPlay() {
+        if (isGameOver) { window.location.reload(); return; } // Rejouer = repartir propre
+        if (playStarted) return;
+        playStarted = true;
+        startMs = Date.now();
+        try { if (window.BTCBoot && BTCBoot.me) BTCBoot.me.startPlay(); } catch (e) { console.error(e); }
+        playOverlay.hidden = true;
+        statusEl.textContent = "En jeu.";
+      }
+      playBtn.addEventListener("click", doPlay);
+
+      // Boutons DEV : font apparaître un bonus de League en jeu (Boot.spawnBonus).
+      var bonusBtns = document.querySelectorAll("[data-bonus]");
+      Array.prototype.forEach.call(bonusBtns, function (btn) {
+        btn.addEventListener("click", function () {
+          try {
+            if (window.BTCBoot && BTCBoot.me) BTCBoot.me.spawnBonus(parseInt(btn.getAttribute("data-bonus"), 10));
+          } catch (e) { console.error(e); }
+        });
+      });
+
+      // DEV : faire apparaître le monstre volant / tuer tous les monstres.
+      var flyBtn = document.getElementById("btc-dev-fly");
+      if (flyBtn) flyBtn.addEventListener("click", function () {
+        try { if (window.BTCBoot && BTCBoot.me) BTCBoot.me.devSpawnFly(); } catch (e) { console.error(e); }
+      });
+      var killBtn = document.getElementById("btc-dev-killall");
+      if (killBtn) killBtn.addEventListener("click", function () {
+        try { if (window.BTCBoot && BTCBoot.me) BTCBoot.me.devKillAllMobs(); } catch (e) { console.error(e); }
+      });
+
+      try {
+        var canvas = document.getElementById("btc-canvas");
+        // eslint-disable-next-line no-new
+        new BTCBoot(canvas);
+        statusEl.textContent = "PixiJS v" + PIXI.VERSION + " - moteur Haxe chargé.";
+      } catch (err) {
+        statusEl.textContent = "Erreur au démarrage : " + err;
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>

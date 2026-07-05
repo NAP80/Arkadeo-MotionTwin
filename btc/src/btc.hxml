@@ -1,0 +1,13 @@
+# Compilation Haxe 4 -> JavaScript + PixiJS (sortie btc/web/game.js).
+# Lancé par build-btc.ps1, qui se place à la racine du dépôt et fournit la toolchain.
+# --macro allowPackage('flash') : les shims Flash->PixiJS vivent dans le package
+# flash.*, interdit par défaut sur la cible JS.
+-js btc/web/game.js
+-lib pixijs
+--macro allowPackage('flash')
+-cp btc/src
+-resource btc/res/texts.fr.xml@fr
+-resource btc/res/texts.en.xml@en
+-resource btc/res/texts.es.xml@es
+-dce no
+Boot

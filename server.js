@@ -45,6 +45,7 @@ app.use(express.urlencoded({ extended: true }));
 const noStore = { setHeaders: (res) => res.setHeader("Cache-Control", "no-store") };
 app.use("/new-capman/assets", express.static(path.join(__dirname, "capman", "web"), noStore));
 app.use("/new-rock-faller/assets", express.static(path.join(__dirname, "rockfaller", "web"), noStore));
+app.use("/new-btc/assets", express.static(path.join(__dirname, "btc", "web"), noStore));
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 app.use("/games", express.static(path.join(__dirname, "assets", "games")));
 app.get("/favicon.ico", (req, res) => res.sendFile(path.join(__dirname, "assets", "favicon.ico")));
@@ -141,10 +142,14 @@ app.get("/new-capman/classement", (req, res) => res.render("new-capman-classemen
 app.get("/new-rock-faller", (req, res) => res.render("new-rock-faller-play"));
 app.get("/new-rock-faller/classement", (req, res) => res.render("new-rock-faller-classement"));
 
+app.get("/new-btc", (req, res) => res.render("new-btc-play"));
+app.get("/new-btc/classement", (req, res) => res.render("new-btc-classement"));
+
 app.listen(PORT, () => {
   const base = `http://localhost:${PORT}`;
   console.log(`[http] Portail     : ${base}/`);
   console.log(`[http] CapMan      : ${base}/new-capman`);
   console.log(`[http] Rock Faller : ${base}/new-rock-faller`);
+  console.log(`[http] BTC         : ${base}/new-btc`);
   console.log(`[sqlite] base      : ${path.join(__dirname, "scores.db")}`);
 });

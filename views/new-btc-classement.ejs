@@ -1,0 +1,160 @@
+<%# Classement New Brutal Teenage Crisis - deux onglets :
+    - League : score classique (game "newBtc", mode=league).
+    - Défi Coffres : survie infinie, score = nb de coffres détruits (game "newBtcDefi", mode=defi). %>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Brutal Teenage Crisis - Classement · Arkadeo</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <style>
+    .lb-tabs { display: flex; gap: 10px; justify-content: center; margin: 14px 0 4px; flex-wrap: wrap; }
+    .lb-tab { font: 700 14px/1 sans-serif; padding: 11px 22px; border-radius: 9px; cursor: pointer;
+      border: 1px solid rgba(155,89,245,.28); background: rgba(255,255,255,.08); color: var(--text-muted);
+      letter-spacing: .04em; transition: background .12s, color .12s, border-color .12s; }
+    .lb-tab:hover { background: rgba(255,255,255,.14); }
+    .lb-tab.is-active { background: var(--purple-main); color: #fff; border-color: var(--purple-main); }
+    .lb-tab--defi.is-active { background: #ffd21f; color: #2a0712; border-color: #ffd21f; }
+  </style>
+</head>
+<body>
+
+  <header class="banner">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <img src="/games/btc/thumb.png" alt="New Brutal Teenage Crisis" class="banner__icon" />
+    <span class="banner__title">Classement</span>
+    <span class="banner__sub">New Brutal Teenage Crisis (PixiJS)</span>
+  </header>
+
+  <main class="main">
+    <a href="/new-btc" class="back-link">← New Brutal Teenage Crisis</a>
+
+    <div class="lb-tabs">
+      <button class="lb-tab is-active" type="button" data-tab="league">League</button>
+      <button class="lb-tab lb-tab--defi" type="button" data-tab="defi">Défi Coffres</button>
+    </div>
+
+    <div class="page-header">
+      <h1 id="lb-title">Tableau des scores</h1>
+      <p id="lb-desc">Meilleurs scores du mode <strong>League</strong> (portage <strong>PixiJS</strong>).
+         La progression <strong>LvUP</strong> est personnelle et n'est pas classée.</p>
+    </div>
+
+    <div class="stats-row" id="stats-row">
+      <div class="stat-chip"><span class="stat-chip__label">Parties</span><span class="stat-chip__value" id="stat-parties">-</span></div>
+      <div class="stat-chip"><span class="stat-chip__label" id="stat-max-label">Score max</span><span class="stat-chip__value" id="stat-score-max">-</span></div>
+      <div class="stat-chip"><span class="stat-chip__label" id="stat-moy-label">Score moyen</span><span class="stat-chip__value" id="stat-score-moy">-</span></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Date</th><th>Heure</th><th id="lb-col">Score</th><th>Durée</th></tr>
+        </thead>
+        <tbody id="results-body">
+          <tr><td colspan="5" class="loading-msg">Chargement…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <%- include('partials/legal') %>
+
+  <script>
+    // Deux classements parallèles. League = game "newBtc"/mode league ; Défi = game
+    // "newBtcDefi"/mode defi (score = coffres détruits). Mêmes /api/results & /api/stats.
+    var TABS = {
+      league: {
+        q: "strict=1&game=newBtc&mode=league", col: "Score", maxLabel: "Score max", moyLabel: "Score moyen",
+        title: "Tableau des scores",
+        desc: 'Meilleurs scores du mode <strong>League</strong> (portage <strong>PixiJS</strong>). La progression <strong>LvUP</strong> est personnelle et n\'est pas classée.'
+      },
+      defi: {
+        q: "strict=1&game=newBtcDefi&mode=defi", col: "Coffres", maxLabel: "Record", moyLabel: "Moyenne",
+        title: "Tableau du Défi Coffres",
+        desc: 'Mode <strong>Défi Coffres</strong> : survie infinie, le score est le <strong>nombre de coffres détruits</strong> avant de se faire déborder.'
+      }
+    };
+    var current = "league";
+
+    function fmtDate(iso) {
+      if (!iso) return { date: "-", time: "-" };
+      var d = new Date(iso);
+      return {
+        date: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+        time: d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      };
+    }
+    function fmtDuration(ms) {
+      if (ms == null || isNaN(ms)) return "-";
+      var s = Math.round(ms / 1000);
+      if (s < 60) return s + "s";
+      return Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
+    }
+
+    async function loadStats() {
+      var t = TABS[current];
+      try {
+        var s = await (await fetch("/api/stats?" + t.q)).json();
+        document.getElementById("stat-parties").textContent   = s.parties != null ? s.parties : 0;
+        document.getElementById("stat-score-max").textContent = s.scoreMax != null ? s.scoreMax : 0;
+        document.getElementById("stat-score-moy").textContent = s.scoreMoyen != null ? Math.round(s.scoreMoyen) : 0;
+      } catch (e) { /* stats optionnelles */ }
+    }
+
+    async function loadResults() {
+      var t = TABS[current];
+      var tbody = document.getElementById("results-body");
+      tbody.innerHTML = '<tr><td colspan="5" class="loading-msg">Chargement…</td></tr>';
+      try {
+        var rows = await (await fetch("/api/results?limit=200&" + t.q)).json();
+        if (!Array.isArray(rows) || rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Aucune partie enregistrée.</td></tr>';
+          return;
+        }
+        rows.sort(function (a, b) {
+          var d = (b.score || 0) - (a.score || 0);
+          return d !== 0 ? d : (new Date(b.playedAt) - new Date(a.playedAt));
+        });
+        tbody.innerHTML = rows.map(function (r, i) {
+          var rank = i + 1;
+          var rankClass = rank <= 3 ? " rank-" + rank : "";
+          var dt = fmtDate(r.playedAt);
+          var score = String(r.score || 0).padStart(6, "0");
+          return "<tr><td><span class='rank-num" + rankClass + "'>" + rank + "</span></td>" +
+            "<td>" + dt.date + "</td><td>" + dt.time + "</td>" +
+            "<td><strong>" + score + "</strong></td><td>" + fmtDuration(r.durationMs) + "</td></tr>";
+        }).join("");
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Impossible de charger les données.<br><small>' + e.message + "</small></td></tr>";
+      }
+    }
+
+    function setTab(tab) {
+      if (!TABS[tab]) return;
+      current = tab;
+      var t = TABS[tab];
+      document.getElementById("lb-title").textContent = t.title;
+      document.getElementById("lb-desc").innerHTML = t.desc;
+      document.getElementById("lb-col").textContent = t.col;
+      document.getElementById("stat-max-label").textContent = t.maxLabel;
+      document.getElementById("stat-moy-label").textContent = t.moyLabel;
+      Array.prototype.forEach.call(document.querySelectorAll(".lb-tab"), function (b) {
+        b.classList.toggle("is-active", b.getAttribute("data-tab") === tab);
+      });
+      loadStats();
+      loadResults();
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll(".lb-tab"), function (b) {
+      b.addEventListener("click", function () { setTab(b.getAttribute("data-tab")); });
+    });
+
+    loadStats();
+    loadResults();
+  </script>
+
+</body>
+</html>

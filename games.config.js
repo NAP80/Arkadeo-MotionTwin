@@ -25,6 +25,16 @@ const GROUPS = [
           { href: "/new-rock-faller/classement", btn: "Classement", btnClass: "classement" },
         ],
       },
+      {
+        name: "Brutal Teenage Crisis",
+        icon: "/games/btc/thumb.png",
+        btns: [
+          { href: "/new-btc", btn: "League", btnClass: "league" },
+          { href: "/new-btc?mode=lvup", btn: "LvUP", btnClass: "lvup" },
+          { href: "/new-btc?mode=defi", btn: "Défi Coffres", btnClass: "defi" },
+          { href: "/new-btc/classement", btn: "Classement", btnClass: "classement" },
+        ],
+      },
     ],
   },
 ];
