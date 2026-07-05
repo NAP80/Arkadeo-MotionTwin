@@ -1,0 +1,13 @@
+git:
+    depth: 1
+
+language: haxe
+
+haxe:
+  - "4.0.5"
+  
+hxml:
+  - install.hxml
+  - build.hxml
+  
+sudo: false

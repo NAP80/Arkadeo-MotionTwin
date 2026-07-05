@@ -1,0 +1,7 @@
+# Compilation Haxe 4 -> JavaScript + PixiJS (sortie capman/web/game.js).
+# Lancé par build-capman.ps1, qui se place à la racine du dépôt et fournit la toolchain.
+-js capman/web/game.js
+-lib pixijs
+-cp capman/src
+-dce no
+Boot

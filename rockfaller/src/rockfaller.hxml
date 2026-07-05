@@ -1,0 +1,7 @@
+# Compilation Haxe 4 -> JavaScript + PixiJS (sortie rockfaller/web/game.js).
+# Lancé par build-rockfaller.ps1, qui se place à la racine du dépôt et fournit la toolchain.
+-js rockfaller/web/game.js
+-lib pixijs
+-cp rockfaller/src
+-dce no
+Boot

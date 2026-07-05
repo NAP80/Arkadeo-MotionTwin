@@ -1,0 +1,252 @@
+<%
+  // Vue de jeu New Rock Faller (League + LvUP), moteur PixiJS.
+  // Charge PixiJS + game.js puis instancie RockFallerBoot. Le boot émet des CustomEvents
+  // window (rf-score / rf-finished / rf-progress) relayés vers POST /api/results
+  // (game:"newRockFaller", League seulement).
+  const W = 600, H = 480;
+%><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Rock Faller · PixiJS</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <script src="/assets/dev-counter.js"></script>
+  <style>
+    .rf-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 12px; }
+    /* Cadre responsive : largeur = min(natif, largeur écran). La HAUTEUR est donnée par
+       le canvas lui-même (height:auto + ratio intrinsèque 600×480), pas par le cadre -
+       ainsi pas de dépendance à `aspect-ratio` + `height:%` (qui peut s'effondrer à 0 sur
+       certains moteurs). Le canvas garde sa résolution interne 600×480 (jeu en 1:1), le
+       CSS le met à l'échelle ; MouseManager remappe le tap (clientX × w/rect.w). */
+    .rf-frame {
+      position: relative;
+      width: min(<%= W %>px, calc(100vw - 24px));
+      background: #000; box-shadow: 0 0 28px rgba(201,138,74,.4); border-radius: 6px; overflow: hidden;
+    }
+    /* height:auto → le canvas garde son ratio 600×480 et fixe la hauteur du cadre.
+       touch-action:none → le tap sur le plateau n'est pas volé par le scroll/zoom. */
+    .rf-frame canvas { display: block; width: 100%; height: auto; touch-action: none; user-select: none; }
+    .rf-hud { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; justify-content: center;
+      color: #ffe8c8; font: 14px/1 sans-serif; }
+    .rf-hud b { color: #ffe066; }
+    .rf-note { color: #998; font: 12px/1.5 sans-serif; max-width: <%= W %>px; text-align: center; }
+    #rf-status { color: #c98a4a; font: 12px/1 sans-serif; min-height: 14px; }
+    .rf-tag {
+      display: inline-block; font: 600 11px/1 sans-serif; color: #2a1607; background: #c98a4a;
+      padding: 4px 8px; border-radius: 6px; letter-spacing: .04em; vertical-align: middle;
+    }
+    .rf-mute { font: 600 12px/1 sans-serif; color: #2a1607; background: #e0a060; border: none;
+      padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+    /* HUD LvUP (campagne) : niveau + objectif + barre de progression. */
+    .rf-lvup { display: flex; flex-direction: column; gap: 6px; align-items: center;
+      width: 100%; max-width: <%= W %>px;
+      color: #ffe8c8; font: 13px/1.3 sans-serif; }
+    .rf-lvup[hidden] { display: none; }
+    .rf-lvup__info b { color: #ffe066; }
+    .rf-bar { width: 70%; height: 12px; background: #2a1607; border: 1px solid #4a3318;
+      border-radius: 6px; overflow: hidden; }
+    .rf-bar__fill { height: 100%; width: 0%; background: linear-gradient(90deg, #e0a060, #ffe066);
+      transition: width .2s ease; }
+    .rf-next { font: 700 14px/1 sans-serif; color: #07140a; background: #6fdc6f; border: none;
+      padding: 8px 18px; border-radius: 8px; cursor: pointer; }
+    .rf-next[hidden] { display: none; }
+    /* Écran d'accueil « Jouer » par-dessus le canvas. */
+    .rf-play {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: 22px;
+      align-items: center; justify-content: center; cursor: pointer;
+      background: radial-gradient(circle at 50% 38%, rgba(104,66,20,.55), rgba(0,0,0,.9));
+    }
+    .rf-play[hidden] { display: none; }
+    .rf-play__title { font: 800 clamp(24px, 8vw, 38px)/1 'Segoe UI', sans-serif; letter-spacing: .14em; color: #ffe6c8;
+      text-shadow: 0 0 18px rgba(201,138,74,.8), 0 0 4px rgba(255,200,120,.9); }
+    .rf-play__btn { font: 700 clamp(18px, 5vw, 22px)/1 sans-serif; color: #2a1607; background: #e0a060; border: none;
+      padding: 15px 46px; border-radius: 10px; cursor: pointer; letter-spacing: .04em;
+      box-shadow: 0 6px 24px rgba(201,138,74,.55); transition: transform .1s ease, background .1s ease; }
+    .rf-play__btn:hover { background: #f0b878; transform: translateY(-2px); }
+  </style>
+</head>
+<body>
+  <header class="banner banner--game">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <span class="banner__title">New Rock Faller <span class="rf-tag">PixiJS</span></span>
+    <span class="banner__sub">Portage Haxe → PixiJS</span>
+  </header>
+
+  <main class="rf-stage">
+    <div class="rf-hud">
+      <span>Score : <b id="rf-score">0</b></span>
+      <span id="rf-result"></span>
+      <button id="rf-bonus" class="rf-mute" type="button">🎁 +1 coup</button>
+      <button id="rf-mute" class="rf-mute" type="button">🔊 Son</button>
+    </div>
+    <div id="rf-lvup" class="rf-lvup" hidden>
+      <div class="rf-lvup__info">Niveau <b id="rf-level">1</b> · Objectif <b id="rf-objective">-</b> pts</div>
+      <div class="rf-bar"><div id="rf-bar-fill" class="rf-bar__fill"></div></div>
+      <button id="rf-next" class="rf-next" type="button" hidden>Niveau suivant ▶</button>
+    </div>
+    <div class="rf-frame">
+      <canvas id="rf-canvas" width="<%= W %>" height="<%= H %>"></canvas>
+      <div id="rf-play" class="rf-play" hidden>
+        <div class="rf-play__title">ROCK FALLER</div>
+        <button id="rf-play-btn" class="rf-play__btn" type="button">▶ Jouer</button>
+      </div>
+    </div>
+    <div id="rf-status">Chargement du moteur…</div>
+    <p class="rf-note">
+      Moteur <strong>PixiJS</strong> natif, jeu rejoué depuis les sources <strong>Haxe</strong>
+      (aucun Flash).
+    </p>
+  </main>
+
+  <!-- Build "legacy" = WebGL + repli Canvas2D (navigateurs sans WebGL). -->
+  <script src="/new-rock-faller/assets/vendor/pixi-legacy.min.js"></script>
+  <script src="/assets/arkadeo-renderer.js"></script>
+  <script src="/new-rock-faller/assets/game.js"></script>
+  <script src="/assets/arkadeo-endgame.js"></script>
+  <script>
+    (function () {
+      var statusEl = document.getElementById("rf-status");
+      var scoreEl  = document.getElementById("rf-score");
+      var resultEl = document.getElementById("rf-result");
+      var muteBtn  = document.getElementById("rf-mute");
+      var startMs  = Date.now();
+      var ended    = false;
+
+      // Fin de partie → arrêt complet du moteur (ticker figé derrière l'écran de fin).
+      // Le « +1 coup » (bouton bonus) peut le relancer (ArkadeoEndgame.resume) si on
+      // choisit de continuer plutôt que de rejouer.
+      ArkadeoEndgame.arm({ event: "rf-finished", boot: "RockFallerBoot" });
+
+      // Mode/niveau : League par défaut ; LvUP via ?mode=lvup + cookie rockFaller_lvup_level.
+      function getCookie(n){ var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)')); return m?decodeURIComponent(m[1]):null; }
+      function setCookie(n,v){ document.cookie = n+'='+encodeURIComponent(v)+'; path=/; max-age='+(3600*24*365); }
+      var params = new URLSearchParams(location.search);
+      var MODE = params.get('mode') === 'lvup' ? 'lvup' : 'league';
+      var LEVEL = 1;
+      if (MODE === 'lvup') { var lv = parseInt(getCookie('rockFaller_lvup_level') || '1', 10); if (lv >= 1 && lv <= 30) LEVEL = lv; }
+      var lvupEl     = document.getElementById('rf-lvup');
+      var levelEl    = document.getElementById('rf-level');
+      var objectiveEl= document.getElementById('rf-objective');
+      var barFill    = document.getElementById('rf-bar-fill');
+      var nextBtn    = document.getElementById('rf-next');
+      nextBtn.addEventListener('click', function(){ location.href = '/new-rock-faller?mode=lvup'; });
+
+      // Barre de progression (LvUP) : score / objectif.
+      window.addEventListener("rf-progress", function (e) {
+        var r = (e.detail && e.detail.ratio) || 0;
+        barFill.style.width = Math.min(100, Math.max(0, r * 100)) + "%";
+      });
+
+      if (typeof PIXI === "undefined") { statusEl.textContent = "Erreur : PixiJS non chargé."; return; }
+      if (typeof RockFallerBoot === "undefined") { statusEl.textContent = "Erreur : game.js (RockFallerBoot) non chargé."; return; }
+
+      // Score live (émis par Boot.addScore).
+      window.addEventListener("rf-score", function (e) {
+        scoreEl.textContent = (e.detail && e.detail.score) || 0;
+      });
+
+      // Fin de partie. Le CLASSEMENT ne contient QUE les scores League : la campagne
+      // LvUP n'y est PAS enregistrée (sa progression vit dans le cookie, ce n'est pas un
+      // score de classement). → on ne POST /api/results qu'en mode League.
+      window.addEventListener("rf-finished", function (e) {
+        var d = e.detail || {};
+        if (MODE !== 'lvup') {
+          fetch("/api/results", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              game: "newRockFaller", mode: "league",
+              win: !!d.win, score: d.score || 0,
+              durationMs: Date.now() - startMs,
+              devUses: window.__ARK_DEV || 0
+            })
+          }).catch(function () { /* hors-ligne / mongo absent : on ignore */ });
+        }
+
+        if (MODE === 'lvup') {
+          if (d.win) {
+            var nextLv = Math.min(30, LEVEL + 1);
+            setCookie('rockFaller_lvup_level', String(nextLv));
+            if (LEVEL >= 30) { resultEl.textContent = "Campagne terminée ! 🏆"; nextBtn.hidden = true; }
+            else { resultEl.textContent = "Niveau " + LEVEL + " réussi !"; nextBtn.textContent = "Niveau " + nextLv + " ▶"; nextBtn.hidden = false; }
+          } else {
+            resultEl.textContent = "Objectif manqué - réessaie le niveau " + LEVEL + ".";
+            nextBtn.textContent = "Réessayer le niveau " + LEVEL; nextBtn.hidden = false;
+          }
+        } else {
+          // League : écran de fin (score) + bouton « Rejouer » par-dessus le canvas figé.
+          resultEl.textContent = d.win ? "Victoire !" : "Partie terminée";
+          ended = true;
+          var pt = document.querySelector(".rf-play__title");
+          if (pt) pt.innerHTML = (d.win ? "VICTOIRE !" : "PARTIE TERMINÉE")
+            + '<br><span style="font-size:18px;font-weight:600;letter-spacing:.04em">Score : ' + (d.score || 0) + "</span>";
+          if (playBtn) playBtn.textContent = "↻ Rejouer";
+          if (playOverlay) playOverlay.hidden = false;
+        }
+      });
+
+      // Bouton bonus : +1 coup (relance la partie si elle était terminée).
+      var bonusBtn = document.getElementById("rf-bonus");
+      bonusBtn.addEventListener("click", function () {
+        try {
+          if (RockFallerBoot.me && RockFallerBoot.me.addBonusPlay) {
+            // +1 coup = aide qui gonfle le score → compté en devUses (cf. dev-counter.js,
+            // qui ne le détecte pas par convention : le bouton n'est pas un bloc *-dev).
+            window.__ARK_DEV = (window.__ARK_DEV || 0) + 1;
+            // +1 coup relance la partie : si le moteur a été figé à la fin, on le redémarre
+            // et on masque l'écran de fin pour reprendre.
+            if (ended) { ArkadeoEndgame.resume("RockFallerBoot"); ended = false; if (playOverlay) playOverlay.hidden = true; }
+            RockFallerBoot.me.addBonusPlay();
+          }
+        } catch (e) {}
+      });
+
+      // Bouton mute (le son démarre actif par défaut).
+      muteBtn.addEventListener("click", function () {
+        try {
+          var muted = RockFallerBoot.me && RockFallerBoot.me.toggleMute && RockFallerBoot.me.toggleMute();
+          muteBtn.textContent = muted ? "🔇 Muet" : "🔊 Son";
+        } catch (e) {}
+      });
+
+      // Écran « Jouer » : le moteur crée la partie figée puis émet rf-ready ; on
+      // affiche le bouton, et le clic lance réellement la boucle (Boot.startPlay).
+      var playOverlay = document.getElementById("rf-play");
+      var playBtn     = document.getElementById("rf-play-btn");
+      var playStarted = false;
+      window.addEventListener("rf-ready", function () {
+        playOverlay.hidden = false;
+        statusEl.textContent = "Prêt - clique sur Jouer.";
+        if (MODE === 'lvup') {
+          lvupEl.hidden = false;
+          levelEl.textContent = LEVEL;
+          try { objectiveEl.textContent = (RockFallerBoot.me && RockFallerBoot.me.game) ? RockFallerBoot.me.game.objective : '-'; } catch (e) {}
+          var t = document.querySelector('.rf-play__title'); if (t) t.textContent = 'NIVEAU ' + LEVEL;
+        }
+      });
+      function doPlay() {
+        if (ended) { window.location.reload(); return; } // Rejouer = nouvelle partie propre
+        if (playStarted) return;
+        playStarted = true;
+        startMs = Date.now();
+        try { if (window.RockFallerBoot && RockFallerBoot.me) RockFallerBoot.me.startPlay(); } catch (e) { console.error(e); }
+        playOverlay.hidden = true;
+        statusEl.textContent = "En jeu - relie 4 pierres de même couleur.";
+      }
+      playBtn.addEventListener("click", doPlay);
+
+      try {
+        var canvas = document.getElementById("rf-canvas");
+        // eslint-disable-next-line no-new
+        new RockFallerBoot(canvas, MODE, LEVEL);
+        statusEl.textContent = "PixiJS v" + PIXI.VERSION + " - moteur Haxe chargé.";
+      } catch (err) {
+        statusEl.textContent = "Erreur au démarrage : " + err;
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>

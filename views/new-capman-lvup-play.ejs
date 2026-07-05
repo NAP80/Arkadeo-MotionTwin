@@ -1,0 +1,72 @@
+<%
+  // Vue LvUP (campagne) de New CapMan.
+  // Comme new-capman-play.ejs mais : pose window.__NC_LVUP=true (Boot passe en mode PROGRESSION),
+  // affiche une barre de niveau + progression, et délègue la gestion cookie/passage de niveau au script lvup.js.
+  // Rendue par /new-capman/lvup.
+  const W = 600, H = 460, MAX = 20;
+%><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New CapMan · LvUP</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <style>
+    .nc-stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 12px; }
+    .nc-bar { display: flex; gap: 12px; align-items: center; width: min(600px, 96vw); color: #ffe066; font: 14px/1 sans-serif; }
+    .nc-bar b { color: #fff; }
+    .nc-prog { flex: 1; height: 9px; background: #2a2310; border: 1px solid #5a4a18; border-radius: 5px; overflow: hidden; }
+    .nc-prog__fill { height: 100%; width: 0%; background: linear-gradient(90deg,#ffd24a,#ffe066); transition: width .15s ease; }
+    /* Cadre dimensionné par le canvas (taille posée par Boot, petite ou grande), borné au viewport. */
+    .nc-frame { position: relative; display: inline-block; max-width: 96vw; background: #070512; box-shadow: 0 0 28px rgba(255,200,80,.4); border-radius: 6px; overflow: hidden; }
+    .nc-frame canvas { display: block; max-width: 96vw; max-height: 80vh; image-rendering: pixelated; }
+    #nc-msg { color: #ffcf66; font: 13px/1.4 sans-serif; min-height: 16px; text-align: center; }
+    .nc-note { color: #889; font: 12px/1.5 sans-serif; max-width: min(832px, 96vw); text-align: center; }
+    .nc-tag { display:inline-block; font:600 11px/1 sans-serif; color:#1a1405; background:#ffd24a; padding:4px 8px; border-radius:6px; letter-spacing:.04em; vertical-align:middle; }
+    .nc-play { position:absolute; inset:0; display:flex; flex-direction:column; gap:22px; align-items:center; justify-content:center; cursor:pointer; background:radial-gradient(circle at 50% 38%, rgba(42,35,15,.55), rgba(15,10,2,.9)); }
+    .nc-play[hidden]{ display:none; }
+    .nc-play__title { font:800 34px/1 'Segoe UI',sans-serif; letter-spacing:.12em; color:#ffe6a6; text-shadow:0 0 18px rgba(255,200,80,.8); }
+    .nc-play__btn { font:700 20px/1 sans-serif; color:#1a1405; background:#ffd24a; border:none; padding:13px 40px; border-radius:10px; cursor:pointer; box-shadow:0 6px 24px rgba(255,200,80,.5); }
+    .nc-play__btn:hover { background:#ffe066; }
+    .nc-links { display:flex; gap:14px; font:13px/1 sans-serif; }
+    .nc-links a { color:#ffcf66; }
+  </style>
+</head>
+<body>
+  <header class="banner banner--game">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <span class="banner__title">New CapMan · LvUP <span class="nc-tag">PixiJS</span></span>
+    <span class="banner__sub">Campagne - <%= MAX %> niveaux dessinés</span>
+  </header>
+
+  <main class="nc-stage">
+    <div class="nc-bar">
+      <span>Niveau <b id="nc-lv">1</b> / <%= MAX %></span>
+      <div class="nc-prog"><div id="nc-prog-fill" class="nc-prog__fill"></div></div>
+    </div>
+    <div class="nc-frame">
+      <canvas id="nc-canvas" width="<%= W %>" height="<%= H %>"></canvas>
+      <div id="nc-play" class="nc-play" hidden>
+        <div class="nc-play__title">NIVEAU <span id="nc-play-lv">1</span></div>
+        <button id="nc-play-btn" class="nc-play__btn" type="button">▶ Jouer</button>
+      </div>
+    </div>
+    <div id="nc-msg">Chargement…</div>
+    <p class="nc-note">Flèches : déplacer · Espace : bonus. Ramassez <strong>toutes les pièces</strong> du niveau pour passer au suivant. Les monstres apparaissent au fil du temps.</p>
+    <div class="nc-links">
+      <a href="/new-capman">League</a>
+      <a href="/new-capman/classement">Classement LvUP</a>
+    </div>
+  </main>
+
+  <script>window.__NC_LVUP = true; window.__NC_MAXLEVEL = <%= MAX %>;</script>
+  <script src="/new-capman/assets/vendor/pixi-legacy.min.js"></script>
+  <script src="/assets/arkadeo-renderer.js"></script>
+  <script src="/new-capman/assets/game.js"></script>
+  <script src="/assets/arkadeo-endgame.js"></script>
+  <script src="/new-capman/assets/lvup.js"></script>
+  <!-- Fin de niveau → arrêt complet du moteur (ticker figé pendant la transition de niveau). -->
+  <script>ArkadeoEndgame.arm({ event: "nc-finished", boot: "CapManBoot" });</script>
+</body>
+</html>

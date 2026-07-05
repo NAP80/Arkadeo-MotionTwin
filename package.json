@@ -1,0 +1,15 @@
+{
+  "name": "arkadeo-public",
+  "version": "1.0.0",
+  "description": "Serveur local Arkadeo : sert les jeux HTML5 (PixiJS) et enregistre les scores dans SQLite.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2"
+  }
+}

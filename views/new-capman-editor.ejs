@@ -1,0 +1,254 @@
+<%
+  // Éditeur de niveaux New CapMan.
+  // Pose window.__NC_EDIT=true (-> Boot lance
+  // seq.Editor, qui prend la main et met le jeu en pause). L'édition se fait au
+  // clavier + souris dans le canvas (cf. raccourcis) ; ce panneau pilote la
+  // navigation entre niveaux, le vidage, le reset campagne et l'import/export.
+  // Les niveaux sont stockés en localStorage (newcapman_editor_levels).
+  const W = 600, H = 460;
+%><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New CapMan · Éditeur</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <style>
+    .ed-wrap { display:flex; flex-wrap:wrap; gap:18px; justify-content:center; padding:18px 12px; align-items:flex-start; }
+    /* Cadre dimensionné par le canvas (petit 600×460 ou grand 832×640, posé par Boot), borné au viewport. */
+    .ed-frame { position:relative; display:inline-block; max-width:96vw; background:#070512; box-shadow:0 0 28px rgba(120,255,80,.3); border-radius:6px; overflow:hidden; flex:0 0 auto; }
+    .ed-frame canvas { display:block; max-width:96vw; max-height:80vh; image-rendering:pixelated; }
+    .ed-panel { width:330px; color:#cfe0ff; font:13px/1.5 sans-serif; display:flex; flex-direction:column; gap:14px; }
+    .ed-card { background:#11162a; border:1px solid #28304e; border-radius:8px; padding:12px 14px; }
+    .ed-card h3 { margin:0 0 8px; font-size:13px; letter-spacing:.04em; color:#9fd; text-transform:uppercase; }
+    .ed-lvbar { display:flex; align-items:center; gap:10px; }
+    .ed-lvbar b { color:#fff; font-size:18px; }
+    .ed-btn { font:600 13px/1 sans-serif; color:#06210a; background:#7cf06a; border:none; padding:8px 12px; border-radius:7px; cursor:pointer; }
+    .ed-btn:hover { background:#9bff8c; }
+    .ed-btn--ghost { background:#28304e; color:#cfe0ff; }
+    .ed-btn--ghost:hover { background:#39466e; }
+    .ed-btn--warn { background:#e0734a; color:#2a0f05; }
+    .ed-btn--warn:hover { background:#ff8a5e; }
+    .ed-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .ed-keys { display:grid; grid-template-columns:auto 1fr; gap:3px 10px; margin:0; }
+    .ed-keys kbd { background:#0c1020; border:1px solid #2c3a5e; border-bottom-width:2px; border-radius:4px; padding:1px 6px; font:600 11px/1.4 monospace; color:#bfe; }
+    .ed-mod { color:#ffd24a; font-weight:600; }
+    #ed-data, #ed-data1 { width:100%; box-sizing:border-box; height:70px; resize:vertical; background:#0a0e1c; color:#9fb; border:1px solid #28304e; border-radius:6px; font:11px/1.3 monospace; padding:6px; }
+    #ed-msg { min-height:16px; color:#9fd; font-size:12px; }
+    .ed-links { display:flex; gap:14px; }
+    .ed-links a { color:#7cf06a; }
+  </style>
+</head>
+<body>
+  <header class="banner banner--game">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <span class="banner__title">New CapMan · Éditeur de niveaux</span>
+    <span class="banner__sub">PixiJS - stockage local</span>
+  </header>
+
+  <main class="ed-wrap">
+    <div class="ed-frame">
+      <canvas id="nc-canvas" width="<%= W %>" height="<%= H %>"></canvas>
+    </div>
+
+    <div class="ed-panel">
+      <div class="ed-card">
+        <h3>Essai</h3>
+        <div class="ed-row">
+          <button id="ed-test" class="ed-btn" type="button">▶ Tester ce niveau</button>
+          <button id="ed-back" class="ed-btn ed-btn--warn" type="button" hidden>⏹ Revenir à l'édition</button>
+        </div>
+        <p style="margin:8px 0 0; color:#7a86a8;">Joue la configuration construite (flèches + espace). Mort ou toutes les pièces = retour à l'édition.</p>
+      </div>
+
+      <div class="ed-card ed-edit-only">
+        <h3>Niveau</h3>
+        <div class="ed-lvbar">
+          <button id="ed-prev" class="ed-btn ed-btn--ghost" type="button">◀</button>
+          <span>Niveau <b id="ed-lv">1</b> <span id="ed-count" style="color:#7a86a8;">/ ?</span></span>
+          <button id="ed-next" class="ed-btn ed-btn--ghost" type="button">▶</button>
+          <span id="ed-modified" class="ed-mod" style="margin-left:auto;"></span>
+        </div>
+        <div class="ed-row" style="margin-top:10px;">
+          <button id="ed-clear" class="ed-btn ed-btn--ghost" type="button">Vider le niveau</button>
+          <button id="ed-reset" class="ed-btn ed-btn--warn" type="button">Reset campagne</button>
+        </div>
+      </div>
+
+      <div class="ed-card ed-edit-only">
+        <h3>Raccourcis</h3>
+        <dl class="ed-keys">
+          <span><kbd>D</kbd> <kbd>S</kbd> <kbd>Q</kbd> <kbd>Z</kbd></span><span>Mur droite / bas / gauche / haut</span>
+          <span><kbd>Espace</kbd></span><span>Bloc plein (on/off)</span>
+          <span><kbd>R</kbd></span><span>Rectangle (2 cases : remplir/vider)</span>
+          <span><kbd>T</kbd></span><span>Porte pivotante (on/off)</span>
+          <span><kbd>H</kbd></span><span>Placer le héros</span>
+          <span><kbd>1</kbd>..<kbd>5</kbd></span><span>Monstre (Classic, Skull, Block, Jumper, Hunter)</span>
+          <span><kbd>Suppr</kbd></span><span>Supprimer l'entité sous le curseur</span>
+          <span><kbd>←</kbd><kbd>-></kbd></span><span>Niveau précédent / suivant</span>
+          <span><kbd>Maj</kbd>+flèche</span><span>Décaler tout le niveau</span>
+          <span><kbd>Échap</kbd></span><span>Quitter l'éditeur</span>
+        </dl>
+        <p style="margin:8px 0 0; color:#7a86a8;">La case survolée à la souris est le curseur (cadre vert). Tout est sauvegardé automatiquement.</p>
+      </div>
+
+      <div class="ed-card ed-edit-only">
+        <h3>Import / Export</h3>
+        <p style="margin:0 0 6px; color:#7a86a8;">Chaîne sérialisée des <span id="ed-count2">?</span> niveaux (haxe.Serializer).</p>
+        <textarea id="ed-data" readonly></textarea>
+        <div class="ed-row" style="margin-top:8px;">
+          <button id="ed-copy" class="ed-btn" type="button">Copier</button>
+          <button id="ed-refresh" class="ed-btn ed-btn--ghost" type="button">Rafraîchir</button>
+          <button id="ed-import" class="ed-btn ed-btn--ghost" type="button">Importer</button>
+        </div>
+      </div>
+
+      <div class="ed-card ed-edit-only">
+        <h3>Niveau seul (taille max)</h3>
+        <p style="margin:0 0 6px; color:#7a86a8;">Export / import d'<strong>un seul niveau</strong>, toujours à la <strong>taille maximale</strong> (niveaux 21-30). L'import remplace le grand niveau courant, ou bascule au niveau 21.</p>
+        <textarea id="ed-data1" readonly placeholder="(export d'un niveau)"></textarea>
+        <div class="ed-row" style="margin-top:8px;">
+          <button id="ed-export1" class="ed-btn" type="button">Exporter ce niveau</button>
+          <button id="ed-copy1" class="ed-btn ed-btn--ghost" type="button">Copier</button>
+          <button id="ed-import1" class="ed-btn ed-btn--ghost" type="button">Importer un niveau</button>
+        </div>
+      </div>
+
+      <div id="ed-msg">Chargement…</div>
+      <div class="ed-links">
+        <a href="/new-capman/lvup">← Jouer LvUP</a>
+        <a href="/new-capman/classement">Classement</a>
+      </div>
+    </div>
+  </main>
+
+  <script>window.__NC_EDIT = true;</script>
+  <script src="/new-capman/assets/vendor/pixi-legacy.min.js"></script>
+  <script src="/new-capman/assets/game.js"></script>
+  <script>
+  (function () {
+    var msg = document.getElementById("ed-msg");
+    var lvEl = document.getElementById("ed-lv");
+    var countEl = document.getElementById("ed-count");
+    var count2El = document.getElementById("ed-count2");
+    var modEl = document.getElementById("ed-modified");
+    var dataEl = document.getElementById("ed-data");
+    var data1El = document.getElementById("ed-data1");
+    var curLevel = 1;
+    var testBtn = document.getElementById("ed-test");
+    var backBtn = document.getElementById("ed-back");
+    var editOnly = document.querySelectorAll(".ed-edit-only");
+    var playing = false;
+
+    if (typeof PIXI === "undefined") { msg.textContent = "Erreur : PixiJS non chargé."; return; }
+    if (typeof CapManBoot === "undefined") { msg.textContent = "Erreur : game.js (CapManBoot) non chargé."; return; }
+
+    function boot() { return CapManBoot.me; }
+
+    // Bascule l'UI entre édition et essai (cache les panneaux d'édition pendant l'essai).
+    function setTestingUI(on) {
+      playing = on;
+      for (var i = 0; i < editOnly.length; i++) editOnly[i].hidden = on;
+      testBtn.hidden = on;
+      backBtn.hidden = !on;
+    }
+
+    // Met à jour l'export texte depuis le moteur.
+    function refreshData() {
+      try { dataEl.value = boot() ? boot().editorExport() : ""; } catch (e) { console.error(e); }
+    }
+
+    // Infos niveau émises par l'éditeur (seq.Editor.pushInfo).
+    window.addEventListener("nc-editor", function (e) {
+      var d = e.detail || {};
+      if (d.level) curLevel = d.level;
+      if (lvEl) lvEl.textContent = d.level;
+      if (countEl) countEl.textContent = "/ " + d.count;
+      if (count2El) count2El.textContent = d.count;
+      if (modEl) modEl.textContent = d.modified ? "● modifié" : "";
+      refreshData();
+    });
+
+    // nc-ready arrive au boot ET après chaque reconstruction (changement de taille,
+    // retour d'essai) -> on revient toujours en mode édition.
+    window.addEventListener("nc-ready", function () {
+      setTestingUI(false);
+      msg.textContent = "Éditeur prêt - survole une case et utilise les raccourcis.";
+      refreshData();
+    });
+
+    // Fin d'un essai (mort ou victoire) -> retour à l'édition.
+    window.addEventListener("nc-finished", function () {
+      if (playing && boot()) boot().endPlaytest();
+    });
+
+    document.getElementById("ed-prev").addEventListener("click", function () { if (boot()) boot().editorGoto(2); });
+    document.getElementById("ed-next").addEventListener("click", function () { if (boot()) boot().editorGoto(0); });
+    document.getElementById("ed-clear").addEventListener("click", function () {
+      if (boot() && confirm("Vider entièrement le niveau courant ?")) boot().editorClear();
+    });
+    document.getElementById("ed-reset").addEventListener("click", function () {
+      if (boot() && confirm("Recharger la campagne d'origine ? Les modifications locales seront écrasées.")) boot().editorReset();
+    });
+    document.getElementById("ed-refresh").addEventListener("click", refreshData);
+    document.getElementById("ed-copy").addEventListener("click", function () {
+      dataEl.select();
+      try { navigator.clipboard.writeText(dataEl.value); msg.textContent = "Copié dans le presse-papiers ✓"; }
+      catch (e) { document.execCommand("copy"); msg.textContent = "Copié ✓"; }
+    });
+    document.getElementById("ed-import").addEventListener("click", function () {
+      if (!boot()) return;
+      var s = prompt("Colle ici la chaîne sérialisée à importer :", "");
+      if (s == null || s === "") return;
+      var ok = boot().editorImport(s);
+      msg.textContent = ok ? "Import réussi ✓" : "Import échoué (chaîne invalide).";
+      if (ok) refreshData();
+    });
+
+    // --- Niveau seul (toujours taille max, niveaux 21-30) ---
+    document.getElementById("ed-export1").addEventListener("click", function () {
+      if (!boot()) return;
+      if (curLevel < 21) { msg.textContent = "Export unitaire : passe à un niveau 21-30 (taille maximale)."; return; }
+      try {
+        data1El.value = boot().editorExportLevel();
+        msg.textContent = "Niveau " + curLevel + " exporté ✓ - copie la chaîne.";
+      } catch (e) { console.error(e); }
+    });
+    document.getElementById("ed-copy1").addEventListener("click", function () {
+      if (!data1El.value) { msg.textContent = "Exporte d'abord un niveau."; return; }
+      data1El.select();
+      try { navigator.clipboard.writeText(data1El.value); msg.textContent = "Copié ✓"; }
+      catch (e) { document.execCommand("copy"); msg.textContent = "Copié ✓"; }
+    });
+    document.getElementById("ed-import1").addEventListener("click", function () {
+      if (!boot()) return;
+      var s = prompt("Colle ici la chaîne d'UN niveau (taille max) à importer :", "");
+      if (s == null || s === "") return;
+      var ok = boot().editorImportLevel(s);
+      msg.textContent = ok ? "Niveau importé ✓ (taille max)." : "Import échoué : chaîne invalide ou niveau pas à la taille maximale.";
+      if (ok) refreshData();
+    });
+
+    // Essai : lance la config construite ; le retour se fait via nc-ready.
+    testBtn.addEventListener("click", function () {
+      if (!boot() || playing) return;
+      boot().playtest();
+      setTestingUI(true);
+      msg.textContent = "Essai en cours - flèches : déplacer · espace : bonus.";
+    });
+    backBtn.addEventListener("click", function () {
+      if (boot()) boot().endPlaytest();
+    });
+
+    try {
+      new CapManBoot(document.getElementById("nc-canvas"));
+      msg.textContent = "PixiJS v" + PIXI.VERSION + " - initialisation de l'éditeur…";
+    } catch (err) {
+      msg.textContent = "Erreur au démarrage : " + err;
+      console.error(err);
+    }
+  })();
+  </script>
+</body>
+</html>

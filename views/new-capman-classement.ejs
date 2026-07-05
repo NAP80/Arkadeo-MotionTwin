@@ -1,0 +1,207 @@
+<%# Classement New CapMan - deux onglets :
+    - League   : score classique (game "newCapman", mode=league), tri score décroissant.
+    - SpeedRun : temps des runs 1→20 terminés (mode=speedrun), tri durationMs croissant.
+    ?tab=speedrun ouvre directement l'onglet SpeedRun (lien de fin de run). %>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New CapMan - Classement · Arkadeo</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <style>
+    .lb-tabs { display: flex; gap: 10px; justify-content: center; margin: 14px 0 4px; flex-wrap: wrap; }
+    .lb-tab { font: 700 14px/1 sans-serif; padding: 11px 22px; border-radius: 9px; cursor: pointer;
+      border: 1px solid rgba(155,89,245,.28); background: rgba(255,255,255,.08); color: var(--text-muted);
+      letter-spacing: .04em; transition: background .12s, color .12s, border-color .12s; }
+    .lb-tab:hover { background: rgba(255,255,255,.14); }
+    .lb-tab.is-active { background: var(--purple-main); color: #fff; border-color: var(--purple-main); }
+    .lb-tab--speedrun.is-active { background: #157710; color: #fff; border-color: #157710; }
+  </style>
+</head>
+<body>
+
+  <header class="banner">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <img src="/games/capman/icons/r_capman_a.png" alt="New CapMan" class="banner__icon" />
+    <span class="banner__title">Classement</span>
+    <span class="banner__sub">New CapMan (PixiJS)</span>
+  </header>
+
+  <main class="main">
+    <a href="/new-capman" class="back-link">← New CapMan</a>
+
+    <div class="lb-tabs">
+      <button class="lb-tab is-active" type="button" data-tab="league">League</button>
+      <button class="lb-tab lb-tab--speedrun" type="button" data-tab="speedrun">SpeedRun</button>
+    </div>
+
+    <div class="page-header">
+      <h1 id="lb-title">Tableau des scores</h1>
+      <p id="lb-desc">Meilleurs scores du mode <strong>League</strong> (portage <strong>PixiJS</strong>).
+         La progression <strong>LvUP</strong> est personnelle et n'est pas classée.</p>
+    </div>
+
+    <div class="stats-row" id="stats-row">
+      <div class="stat-chip"><span class="stat-chip__label" id="stat-a-label">Parties</span><span class="stat-chip__value" id="stat-a">-</span></div>
+      <div class="stat-chip"><span class="stat-chip__label" id="stat-b-label">Score max</span><span class="stat-chip__value" id="stat-b">-</span></div>
+      <div class="stat-chip"><span class="stat-chip__label" id="stat-c-label">Score moyen</span><span class="stat-chip__value" id="stat-c">-</span></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr id="thead-row"><th>#</th><th>Date</th><th>Heure</th><th>Score</th><th>Durée</th></tr>
+        </thead>
+        <tbody id="results-body">
+          <tr><td colspan="5" class="loading-msg">Chargement…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <%- include('partials/legal') %>
+
+  <script>
+    // Deux classements parallèles, même base (/api/results). League = score (décroissant) ;
+    // SpeedRun = temps des runs terminés (durationMs croissant, plus rapide = meilleur).
+    var TABS = {
+      league: {
+        q: "strict=1&game=newCapman&mode=league&noDev=1", isTime: false,
+        title: "Tableau des scores",
+        desc: 'Meilleurs scores du mode <strong>League</strong> (portage <strong>PixiJS</strong>). La progression <strong>LvUP</strong> est personnelle et n\'est pas classée.',
+        head: "<th>#</th><th>Date</th><th>Heure</th><th>Score</th><th>Durée</th>", cols: 5,
+        aLabel: "Parties", bLabel: "Score max", cLabel: "Score moyen"
+      },
+      speedrun: {
+        q: "strict=1&game=newCapman&mode=speedrun&noDev=1", isTime: true,
+        title: "Meilleurs temps",
+        desc: 'Runs <strong>SpeedRun</strong> (20 niveaux à la suite) du portage <strong>PixiJS</strong> - plus rapide = meilleur. Seuls les runs terminés (niveau 20) figurent ici.',
+        head: "<th>#</th><th>Date</th><th>Heure</th><th>Temps</th>", cols: 4,
+        aLabel: "Runs", bLabel: "Meilleur temps", cLabel: "Temps moyen"
+      }
+    };
+    var current = "league";
+
+    function fmtDate(iso) {
+      if (!iso) return { date: "-", time: "-" };
+      var d = new Date(iso);
+      return {
+        date: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+        time: d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      };
+    }
+    function fmtDuration(ms) {
+      if (ms == null || isNaN(ms)) return "-";
+      var s = Math.round(ms / 1000);
+      if (s < 60) return s + "s";
+      return Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
+    }
+    // Temps speedrun : mm:ss.cs (centièmes).
+    function fmtTime(ms) {
+      if (ms == null || isNaN(ms)) return "-";
+      var t = Math.max(0, ms | 0);
+      var m = Math.floor(t / 60000), s = Math.floor((t % 60000) / 1000), cs = Math.floor((t % 1000) / 10);
+      return m + ":" + String(s).padStart(2, "0") + "." + String(cs).padStart(2, "0");
+    }
+
+    // Filtre dev robuste (indépendant du serveur) : une partie avec outil dev n'apparaît jamais.
+    function isClean(r) { return !(Number(r && r.devUses) > 0); }
+    // SpeedRun : ne garder que les runs avec un temps valide.
+    function isValidTime(r) { return r && r.durationMs != null && !isNaN(r.durationMs) && r.durationMs > 0; }
+
+    function setStats(rows) {
+      var t = TABS[current];
+      if (t.isTime) {
+        var n = rows.length, best = null, sum = 0;
+        for (var i = 0; i < n; i++) { var ms = rows[i].durationMs; sum += ms; if (best == null || ms < best) best = ms; }
+        document.getElementById("stat-a").textContent = n;
+        document.getElementById("stat-b").textContent = n ? fmtTime(best) : "-";
+        document.getElementById("stat-c").textContent = n ? fmtTime(Math.round(sum / n)) : "-";
+      } else {
+        var n = rows.length, max = 0, sum = 0;
+        for (var i = 0; i < n; i++) { var s = rows[i].score || 0; if (s > max) max = s; sum += s; }
+        document.getElementById("stat-a").textContent = n;
+        document.getElementById("stat-b").textContent = max;
+        document.getElementById("stat-c").textContent = n ? Math.round(sum / n) : 0;
+      }
+    }
+
+    function renderRows(rows) {
+      var t = TABS[current];
+      if (t.isTime) {
+        // Plus rapide d'abord (durationMs croissant) ; à égalité, le plus récent.
+        rows.sort(function (a, b) {
+          var d = a.durationMs - b.durationMs;
+          return d !== 0 ? d : (new Date(b.playedAt) - new Date(a.playedAt));
+        });
+        return rows.map(function (r, i) {
+          var rank = i + 1, rankClass = rank <= 3 ? " rank-" + rank : "";
+          var dt = fmtDate(r.playedAt);
+          return "<tr><td><span class='rank-num" + rankClass + "'>" + rank + "</span></td>" +
+            "<td>" + dt.date + "</td><td>" + dt.time + "</td>" +
+            "<td><strong>" + fmtTime(r.durationMs) + "</strong></td></tr>";
+        }).join("");
+      }
+      // Score décroissant ; à score égal, le plus récent.
+      rows.sort(function (a, b) {
+        var d = (b.score || 0) - (a.score || 0);
+        return d !== 0 ? d : (new Date(b.playedAt) - new Date(a.playedAt));
+      });
+      return rows.map(function (r, i) {
+        var rank = i + 1, rankClass = rank <= 3 ? " rank-" + rank : "";
+        var dt = fmtDate(r.playedAt);
+        var score = String(r.score || 0).padStart(6, "0");
+        return "<tr><td><span class='rank-num" + rankClass + "'>" + rank + "</span></td>" +
+          "<td>" + dt.date + "</td><td>" + dt.time + "</td>" +
+          "<td><strong>" + score + "</strong></td><td>" + fmtDuration(r.durationMs) + "</td></tr>";
+      }).join("");
+    }
+
+    async function load() {
+      var t = TABS[current];
+      var tbody = document.getElementById("results-body");
+      tbody.innerHTML = '<tr><td colspan="' + t.cols + '" class="loading-msg">Chargement…</td></tr>';
+      try {
+        var raw  = await (await fetch("/api/results?limit=500&" + t.q)).json();
+        var rows = (Array.isArray(raw) ? raw : []).filter(isClean);
+        if (t.isTime) rows = rows.filter(isValidTime);
+        setStats(rows);
+        if (rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="' + t.cols + '" class="empty-msg">Aucune partie enregistrée.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = renderRows(rows);
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="' + t.cols + '" class="empty-msg">Impossible de charger les données.<br><small>' + e.message + "</small></td></tr>";
+      }
+    }
+
+    function setTab(tab) {
+      if (!TABS[tab]) return;
+      current = tab;
+      var t = TABS[tab];
+      document.getElementById("lb-title").textContent = t.title;
+      document.getElementById("lb-desc").innerHTML = t.desc;
+      document.getElementById("thead-row").innerHTML = t.head;
+      document.getElementById("stat-a-label").textContent = t.aLabel;
+      document.getElementById("stat-b-label").textContent = t.bLabel;
+      document.getElementById("stat-c-label").textContent = t.cLabel;
+      Array.prototype.forEach.call(document.querySelectorAll(".lb-tab"), function (b) {
+        b.classList.toggle("is-active", b.getAttribute("data-tab") === tab);
+      });
+      load();
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll(".lb-tab"), function (b) {
+      b.addEventListener("click", function () { setTab(b.getAttribute("data-tab")); });
+    });
+
+    // ?tab=speedrun → ouvrir directement l'onglet SpeedRun (lien de fin de run).
+    var initial = new URLSearchParams(location.search).get("tab");
+    setTab(TABS[initial] ? initial : "league");
+  </script>
+
+</body>
+</html>

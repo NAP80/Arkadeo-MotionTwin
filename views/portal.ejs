@@ -1,0 +1,48 @@
+<%# Portail d'accueil : rend les tuiles à partir des groupes fournis par le serveur (games.config.js). %>
+<% var _groups = (typeof locals !== "undefined" && locals.groups) ? locals.groups : []; %>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arkadeo</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+  <header class="portal-header">
+    <span class="portal-logo">Arkadeo</span>
+    <p class="portal-tagline">Rejouez aux jeux Arkadeo</p>
+  </header>
+
+  <% _groups.forEach(function (grp) { %>
+    <div class="portal-section"><span><%= grp.label %></span></div>
+    <main class="games-grid">
+      <% grp.tiles.forEach(function (t) { %>
+        <div class="game-card">
+          <div class="game-card__bg"></div>
+          <div class="game-card__content">
+            <div class="game-card__header">
+              <% if (t.icon) { %>
+                <img src="<%= t.icon %>" class="game-card__icon" alt="<%= t.name %>" />
+              <% } else if (t.emoji) { %>
+                <span class="game-card__emoji"><%= t.emoji %></span>
+              <% } %>
+              <span class="game-card__name"><%= t.name %></span>
+            </div>
+            <div class="game-card__btns">
+              <% t.btns.forEach(function (b) { %>
+                <a href="<%= b.href %>" class="game-btn game-btn--<%= b.btnClass || 'league' %>"><%= b.btn %></a>
+              <% }); %>
+            </div>
+          </div>
+        </div>
+      <% }); %>
+    </main>
+  <% }); %>
+
+  <%- include('partials/legal') %>
+
+</body>
+</html>

@@ -1,0 +1,189 @@
+<%
+  // Vue SpeedRun de New CapMan : enchaîner les 20 niveaux dessinés en une session, le plus
+  // vite possible. Pose window.__NC_SPEEDRUN=true (-> Boot mode speedrun, état en mémoire :
+  // un refresh repart au niveau 1). HUD = chrono (mm:ss.cs, temps de JEU ACTIF) + Niveau N/20.
+  // Overlay 3-2-1-Go (events nc-countdown/nc-go) au départ et après chaque mort. Le temps
+  // total est envoyé au classement (mode "speedrun") à la fin (niveau 20 réussi).
+  const W = 600, H = 460, MAX = 20;
+%><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New CapMan · SpeedRun</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <script src="/assets/dev-counter.js"></script>
+  <style>
+    .nc-stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 12px; }
+    .nc-bar { display: flex; gap: 18px; align-items: center; width: min(600px, 96vw); color: #ffe066; font: 14px/1 sans-serif; }
+    .nc-bar b { color: #fff; }
+    .nc-chrono { margin-left: auto; font: 700 22px/1 'Segoe UI', monospace; color: #9effa0; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+    .nc-frame { position: relative; display: inline-block; max-width: 96vw; background: #070512; box-shadow: 0 0 28px rgba(120,255,120,.35); border-radius: 6px; overflow: hidden; }
+    .nc-frame canvas { display: block; max-width: 96vw; max-height: 80vh; image-rendering: pixelated; }
+    #nc-msg { color: #ffcf66; font: 13px/1.4 sans-serif; min-height: 16px; text-align: center; }
+    .nc-note { color: #889; font: 12px/1.5 sans-serif; max-width: min(600px, 96vw); text-align: center; }
+    .nc-tag { display:inline-block; font:600 11px/1 sans-serif; color:#06210a; background:#7cf06a; padding:4px 8px; border-radius:6px; letter-spacing:.04em; vertical-align:middle; }
+    .nc-links { display:flex; gap:14px; font:13px/1 sans-serif; }
+    .nc-links a { color:#7cf06a; }
+    /* Overlays */
+    .nc-ov { position:absolute; inset:0; display:flex; flex-direction:column; gap:20px; align-items:center; justify-content:center;
+      background:radial-gradient(circle at 50% 40%, rgba(10,30,12,.55), rgba(3,8,4,.92)); text-align:center; }
+    .nc-ov[hidden] { display:none; }
+    .nc-ov__title { font:800 32px/1.1 'Segoe UI',sans-serif; letter-spacing:.1em; color:#bfffc0; text-shadow:0 0 18px rgba(120,255,120,.7); }
+    .nc-ov__sub { color:#cfe0ff; font:14px/1.4 sans-serif; max-width:80%; }
+    .nc-ov__btn { font:700 20px/1 sans-serif; color:#06210a; background:#7cf06a; border:none; padding:13px 40px; border-radius:10px; cursor:pointer; box-shadow:0 6px 24px rgba(120,255,120,.45); }
+    .nc-ov__btn:hover { background:#9bff8c; }
+    .nc-ov__time { font:800 40px/1 'Segoe UI',monospace; color:#9effa0; font-variant-numeric:tabular-nums; }
+    /* Compte à rebours : gros chiffre central, non bloquant pour le clavier */
+    #nc-count { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+    #nc-count[hidden] { display:none; }
+    #nc-count span { font:800 120px/1 'Segoe UI',sans-serif; color:#fff; text-shadow:0 0 30px rgba(120,255,120,.9), 0 4px 12px rgba(0,0,0,.6); }
+  </style>
+</head>
+<body>
+  <header class="banner banner--game">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <span class="banner__title">New CapMan · SpeedRun <span class="nc-tag">PixiJS</span></span>
+    <span class="banner__sub">20 niveaux à la suite, contre la montre</span>
+  </header>
+
+  <main class="nc-stage">
+    <div class="nc-bar">
+      <span>Niveau <b id="nc-lv">1</b> / <%= MAX %></span>
+      <span class="nc-chrono" id="nc-chrono">0:00.00</span>
+    </div>
+    <div class="nc-frame">
+      <canvas id="nc-canvas" width="<%= W %>" height="<%= H %>"></canvas>
+
+      <!-- Compte à rebours 3-2-1-Go (par-dessus le jeu, n'intercepte pas le clavier) -->
+      <div id="nc-count" hidden><span id="nc-count-n">3</span></div>
+
+      <!-- Écran de démarrage -->
+      <div id="nc-start" class="nc-ov" hidden>
+        <div class="nc-ov__title">SPEEDRUN</div>
+        <div class="nc-ov__sub">Enchaîne les 20 niveaux le plus vite possible. Tu peux <strong>maintenir une direction</strong>
+          pendant le décompte pour partir pile à « Go ». À la mort, on recommence le niveau (le chrono continue).</div>
+        <button id="nc-start-btn" class="nc-ov__btn" type="button">▶ Démarrer</button>
+      </div>
+
+      <!-- Écran de fin -->
+      <div id="nc-end" class="nc-ov" hidden>
+        <div class="nc-ov__title">Run terminé !</div>
+        <div class="nc-ov__time" id="nc-end-time">0:00.00</div>
+        <div class="nc-links">
+          <a href="/new-capman/classement?tab=speedrun">Classement</a>
+          <a href="#" id="nc-replay">↺ Rejouer</a>
+        </div>
+      </div>
+    </div>
+    <div id="nc-msg">Chargement…</div>
+    <p class="nc-note">Flèches : déplacer · Espace : bonus. Le chrono ne compte que le <strong>jeu actif</strong>
+      (en pause pendant les 3-2-1 et l'animation de mort).</p>
+    <div class="nc-links">
+      <a href="/new-capman">League</a>
+      <a href="/new-capman/lvup">LvUP</a>
+      <a href="/new-capman/classement?tab=speedrun">Classement SpeedRun</a>
+    </div>
+  </main>
+
+  <script>window.__NC_SPEEDRUN = true;</script>
+  <script src="/new-capman/assets/vendor/pixi-legacy.min.js"></script>
+  <script src="/new-capman/assets/game.js"></script>
+  <script>
+  (function () {
+    var msg = document.getElementById("nc-msg");
+    var lvEl = document.getElementById("nc-lv");
+    var chronoEl = document.getElementById("nc-chrono");
+    var startOv = document.getElementById("nc-start");
+    var startBtn = document.getElementById("nc-start-btn");
+    var endOv = document.getElementById("nc-end");
+    var endTime = document.getElementById("nc-end-time");
+    var countOv = document.getElementById("nc-count");
+    var countN = document.getElementById("nc-count-n");
+
+    if (typeof PIXI === "undefined") { msg.textContent = "Erreur : PixiJS non chargé."; return; }
+    if (typeof CapManBoot === "undefined") { msg.textContent = "Erreur : game.js (CapManBoot) non chargé."; return; }
+
+    function boot() { return CapManBoot.me; }
+    function fmtTime(ms) {
+      var t = Math.max(0, ms | 0);
+      var m = Math.floor(t / 60000);
+      var s = Math.floor((t % 60000) / 1000);
+      var cs = Math.floor((t % 1000) / 10);
+      return m + ":" + String(s).padStart(2, "0") + "." + String(cs).padStart(2, "0");
+    }
+
+    var done = false;
+
+    // Boucle d'affichage (rAF de la page) : chrono + niveau lus dans le moteur.
+    function hud() {
+      if (boot()) {
+        chronoEl.textContent = fmtTime(boot().getSpeedrunMs());
+        lvEl.textContent = boot().getSpeedrunLevel();
+      }
+      requestAnimationFrame(hud);
+    }
+    requestAnimationFrame(hud);
+
+    window.addEventListener("nc-ready", function () {
+      startOv.hidden = false;
+      msg.textContent = "Prêt - clique sur Démarrer.";
+    });
+
+    startBtn.addEventListener("click", function () {
+      startOv.hidden = true;
+      msg.textContent = "C'est parti !";
+      try { boot().startPlay(); } catch (e) { console.error(e); }
+    });
+
+    // Compte à rebours : nc-countdown {n} affiche le chiffre, nc-go montre « GO! » brièvement.
+    window.addEventListener("nc-countdown", function (e) {
+      var n = (e.detail && e.detail.n) || 0;
+      countN.textContent = n;
+      countOv.hidden = false;
+    });
+    window.addEventListener("nc-go", function () {
+      countN.textContent = "GO!";
+      countOv.hidden = false;
+      setTimeout(function () { countOv.hidden = true; }, 350);
+    });
+
+    // Changement de niveau (slide vers le suivant / respawn).
+    window.addEventListener("nc-sr-level", function (e) {
+      if (e.detail) lvEl.textContent = e.detail.level;
+    });
+
+    // Fin du run (niveau 20 réussi) : enregistre le TEMPS au classement.
+    window.addEventListener("nc-finished", function (e) {
+      if (done) return;
+      done = true;
+      var d = e.detail || {};
+      var ms = d.durationMs || boot().getSpeedrunMs();
+      endTime.textContent = fmtTime(ms);
+      endOv.hidden = false;
+      countOv.hidden = true;
+      msg.textContent = "Run terminé en " + fmtTime(ms) + " !";
+      fetch("/api/results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ game: "newCapman", mode: "speedrun", win: true, durationMs: ms, devUses: window.__ARK_DEV || 0 })
+      }).catch(function () {});
+    });
+
+    document.getElementById("nc-replay").addEventListener("click", function (ev) {
+      ev.preventDefault();
+      location.href = "/new-capman/speedrun";
+    });
+
+    try {
+      new CapManBoot(document.getElementById("nc-canvas"));
+      msg.textContent = "PixiJS v" + PIXI.VERSION + " - prêt.";
+    } catch (err) {
+      msg.textContent = "Erreur au démarrage : " + err;
+      console.error(err);
+    }
+  })();
+  </script>
+</body>
+</html>

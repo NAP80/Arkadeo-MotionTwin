@@ -1,0 +1,132 @@
+<%# Gabarit COMMUN de classement des jeux New (PixiJS). Un seul fichier → toutes
+    les pages de classement sont identiques (mise en page, tri, textes). Chaque
+    jeu fournit ses paramètres via include() :
+      gameId   id en base (ex. "newRockFaller")
+      gameName libellé affiché (ex. "New CapMan")
+      icon     URL de l'icône (déjà servie, ex. "/games/capman/icons/r_capman_a.png")
+      playUrl  lien retour vers le jeu (ex. "/new-capman")
+
+    RÈGLE : le classement ne contient QUE le mode League (la requête force
+    mode=league → la campagne LvUP n'est jamais récupérée) ET uniquement les
+    parties sans outil dev (devUses=0). Le filtre dev est appliqué côté SERVEUR
+    (noDev=1) ET re-vérifié côté client (robuste si un proxy/CDN sert une réponse
+    non filtrée). Pas de colonne « Mode ». %>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= gameName %> - Classement · Arkadeo</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+  <header class="banner">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <img src="<%= icon %>" alt="<%= gameName %>" class="banner__icon" />
+    <span class="banner__title">Classement</span>
+    <span class="banner__sub"><%= gameName %> (PixiJS)</span>
+  </header>
+
+  <main class="main">
+    <a href="<%= playUrl %>" class="back-link">← <%= gameName %></a>
+
+    <div class="page-header">
+      <h1>Tableau des scores</h1>
+      <p>Meilleurs scores du mode <strong>League</strong> (portage <strong>PixiJS</strong>).
+         La progression <strong>LvUP</strong> est personnelle et n'est pas classée.</p>
+    </div>
+
+    <div class="stats-row" id="stats-row">
+      <div class="stat-chip"><span class="stat-chip__label">Parties</span><span class="stat-chip__value" id="stat-parties">-</span></div>
+      <div class="stat-chip"><span class="stat-chip__label">Score max</span><span class="stat-chip__value" id="stat-score-max">-</span></div>
+      <div class="stat-chip"><span class="stat-chip__label">Score moyen</span><span class="stat-chip__value" id="stat-score-moy">-</span></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Date</th><th>Heure</th><th>Score</th><th>Durée</th></tr>
+        </thead>
+        <tbody id="results-body">
+          <tr><td colspan="5" class="loading-msg">Chargement…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <%- include('legal') %>
+
+  <script>
+    // Classement = mode League uniquement (LvUP jamais récupéré côté serveur), et
+    // UNIQUEMENT les parties sans outil dev (noDev=1 → le serveur exclut devUses>0).
+    var Q = "strict=1&game=<%= gameId %>&mode=league&noDev=1";
+
+    function fmtDate(iso) {
+      if (!iso) return { date: "-", time: "-" };
+      var d = new Date(iso);
+      return {
+        date: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+        time: d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      };
+    }
+    function fmtDuration(ms) {
+      if (ms == null || isNaN(ms)) return "-";
+      var s = Math.round(ms / 1000);
+      if (s < 60) return s + "s";
+      return Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
+    }
+
+    // FILTRE DEV (robuste, indépendant du serveur). Le serveur applique déjà noDev=1,
+    // mais en prod un proxy/CDN peut soit ignorer/dropper le paramètre, soit servir une
+    // réponse /api/results mise en cache AVANT le correctif → on reçoit alors TOUTES les
+    // parties. On filtre donc AUSSI ici : une partie jouée avec un outil dev (devUses>0)
+    // n'est JAMAIS affichée, quoi que renvoie l'API.
+    function isClean(r) { return !(Number(r && r.devUses) > 0); }
+
+    // Les chips (Parties / Score max / Score moyen) sont calculées sur les MÊMES lignes
+    // filtrées que le tableau → impossible qu'elles incluent des parties dev même si
+    // /api/stats (serveur) renvoyait des chiffres non filtrés.
+    function setStats(rows) {
+      var n = rows.length, max = 0, sum = 0;
+      for (var i = 0; i < n; i++) { var s = rows[i].score || 0; if (s > max) max = s; sum += s; }
+      document.getElementById("stat-parties").textContent   = n;
+      document.getElementById("stat-score-max").textContent = max;
+      document.getElementById("stat-score-moy").textContent = n ? Math.round(sum / n) : 0;
+    }
+
+    async function load() {
+      var tbody = document.getElementById("results-body");
+      try {
+        var raw  = await (await fetch("/api/results?limit=500&" + Q)).json();
+        var rows = (Array.isArray(raw) ? raw : []).filter(isClean);
+        setStats(rows);
+        if (rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Aucune partie enregistrée.</td></tr>';
+          return;
+        }
+        // Vrai classement : tri par SCORE décroissant ; à score égal, le plus récent.
+        rows.sort(function (a, b) {
+          var d = (b.score || 0) - (a.score || 0);
+          return d !== 0 ? d : (new Date(b.playedAt) - new Date(a.playedAt));
+        });
+        tbody.innerHTML = rows.map(function (r, i) {
+          var rank = i + 1;
+          var rankClass = rank <= 3 ? " rank-" + rank : "";
+          var dt = fmtDate(r.playedAt);
+          var score = String(r.score || 0).padStart(6, "0");
+          return "<tr><td><span class='rank-num" + rankClass + "'>" + rank + "</span></td>" +
+            "<td>" + dt.date + "</td><td>" + dt.time + "</td>" +
+            "<td><strong>" + score + "</strong></td><td>" + fmtDuration(r.durationMs) + "</td></tr>";
+        }).join("");
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Impossible de charger les données.<br><small>' + e.message + "</small></td></tr>";
+      }
+    }
+
+    load();
+  </script>
+
+</body>
+</html>

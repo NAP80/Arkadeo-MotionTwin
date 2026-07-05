@@ -1,0 +1,197 @@
+<%
+  // Vue de jeu New CapMan (League), moteur PixiJS.
+  // POST /api/results (game:"newCapman"). Assets servis sous /new-capman/assets/.
+  const W = 600, H = 460;
+%><!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New CapMan · PixiJS</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <script src="/assets/dev-counter.js"></script>
+  <style>
+    .nc-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 12px; }
+    .nc-frame {
+      position: relative; display: inline-block; max-width: 96vw;
+      background: #070512; box-shadow: 0 0 28px rgba(255,200,80,.4); border-radius: 6px; overflow: hidden;
+    }
+    .nc-frame canvas { display: block; max-width: 96vw; max-height: 80vh; image-rendering: pixelated; }
+    .nc-hud { display: flex; gap: 18px; align-items: center; color: #cfe0ff; font: 14px/1 sans-serif; }
+    .nc-hud b { color: #ffe066; }
+    .nc-note { color: #889; font: 12px/1.5 sans-serif; max-width: <%= W %>px; text-align: center; }
+    .nc-dev { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border: 1px dashed #5a4a18;
+      border-radius: 8px; background: rgba(255,210,74,.06); }
+    .nc-dev__tag { font: 700 10px/1 sans-serif; letter-spacing: .1em; color: #1a1405; background: #ffd24a;
+      padding: 3px 6px; border-radius: 4px; }
+    .nc-dev__btn { font: 600 13px/1 sans-serif; color: #ffe6a6; background: #2a2310; border: 1px solid #5a4a18;
+      padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .nc-dev__btn:hover { background: #3a3016; color: #fff; }
+    .nc-dev__btn--danger { color: #ffb0b0; border-color: #6a2020; background: #2a1010; }
+    .nc-dev__btn--danger:hover { background: #3a1616; color: #fff; }
+    #nc-status { color: #ffcf66; font: 12px/1 sans-serif; min-height: 14px; }
+    .nc-tag {
+      display: inline-block; font: 600 11px/1 sans-serif; color: #1a1405; background: #ffd24a;
+      padding: 4px 8px; border-radius: 6px; letter-spacing: .04em; vertical-align: middle;
+    }
+    .nc-play {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: 22px;
+      align-items: center; justify-content: center; cursor: pointer;
+      background: radial-gradient(circle at 50% 38%, rgba(42,35,15,.55), rgba(15,10,2,.9));
+    }
+    .nc-play[hidden] { display: none; }
+    .nc-play__title { font: 800 38px/1 'Segoe UI', sans-serif; letter-spacing: .14em; color: #ffe6a6;
+      text-shadow: 0 0 18px rgba(255,200,80,.8), 0 0 4px rgba(255,220,120,.9); }
+    .nc-play__btn { font: 700 22px/1 sans-serif; color: #1a1405; background: #ffd24a; border: none;
+      padding: 15px 46px; border-radius: 10px; cursor: pointer; letter-spacing: .04em;
+      box-shadow: 0 6px 24px rgba(255,200,80,.55); transition: transform .1s ease, background .1s ease; }
+    .nc-play__btn:hover { background: #ffe066; transform: translateY(-2px); }
+  </style>
+</head>
+<body>
+  <header class="banner banner--game">
+    <a href="/" class="banner__back">← Arkadeo</a>
+    <span class="banner__title">New CapMan <span class="nc-tag">PixiJS</span></span>
+    <span class="banner__sub">Portage Haxe -> PixiJS</span>
+  </header>
+
+  <main class="nc-stage">
+    <div class="nc-hud">
+      <span>Score : <b id="nc-score">0</b></span>
+      <span id="nc-result"></span>
+    </div>
+    <div class="nc-frame">
+      <canvas id="nc-canvas" width="<%= W %>" height="<%= H %>"></canvas>
+      <div id="nc-play" class="nc-play" hidden>
+        <div class="nc-play__title">CAPMAN</div>
+        <button id="nc-play-btn" class="nc-play__btn" type="button">▶ Jouer</button>
+      </div>
+    </div>
+    <div id="nc-status">Chargement du moteur…</div>
+    <p class="nc-note">
+      Flèches : déplacer · Espace : bonus. Ramassez toutes les pièces du labyrinthe
+      en évitant les ennemis.<br/>
+      Moteur <strong>PixiJS</strong> natif, jeu porté depuis les sources <strong>Haxe</strong>
+      (aucun Flash).
+    </p>
+    <div class="nc-dev">
+      <span class="nc-dev__tag">DEV</span>
+      <button id="nc-dev-cap" class="nc-dev__btn" type="button">🎩 Casquette d'invincibilité</button>
+    </div>
+    <div class="nc-dev">
+      <span class="nc-dev__tag">DEV monstres</span>
+      <button class="nc-dev__btn" type="button" data-spawn="0">👻 Classic</button>
+      <button class="nc-dev__btn" type="button" data-spawn="1">💀 Skull</button>
+      <button class="nc-dev__btn" type="button" data-spawn="2">🧱 Block</button>
+      <button class="nc-dev__btn" type="button" data-spawn="3">🦘 Jumper</button>
+      <button class="nc-dev__btn" type="button" data-spawn="4">🟣 Hunter</button>
+      <button id="nc-dev-killbads" class="nc-dev__btn nc-dev__btn--danger" type="button">🗑️ Supprimer les monstres</button>
+    </div>
+  </main>
+
+  <!-- Build "legacy" = WebGL + repli Canvas2D. -->
+  <script src="/new-capman/assets/vendor/pixi-legacy.min.js"></script>
+  <script src="/assets/arkadeo-renderer.js"></script>
+  <script src="/new-capman/assets/game.js"></script>
+  <script src="/assets/arkadeo-endgame.js"></script>
+  <script>
+    (function () {
+      var statusEl = document.getElementById("nc-status");
+      var scoreEl  = document.getElementById("nc-score");
+      var resultEl = document.getElementById("nc-result");
+      var startMs  = Date.now();
+
+      if (typeof PIXI === "undefined") { statusEl.textContent = "Erreur : PixiJS non chargé."; return; }
+      if (typeof CapManBoot === "undefined") { statusEl.textContent = "Erreur : game.js (CapManBoot) non chargé."; return; }
+
+      // Fin de partie → arrêt complet du moteur (ticker figé derrière l'écran de fin).
+      ArkadeoEndgame.arm({ event: "nc-finished", boot: "CapManBoot" });
+
+      // Score live (émis par Boot.addScore).
+      window.addEventListener("nc-score", function (e) {
+        scoreEl.textContent = (e.detail && e.detail.score) || 0;
+      });
+
+      // Fin de partie : écran de fin (score) + bouton « Rejouer » (recharge propre) + relai
+      // API. Le moteur est figé par ArkadeoEndgame → plus de rendu en boucle après la partie.
+      var ended = false;
+      window.addEventListener("nc-finished", function (e) {
+        var d = e.detail || {};
+        ended = true;
+        resultEl.textContent = d.win ? "Victoire !" : "Partie terminée";
+        var pt = document.querySelector(".nc-play__title");
+        if (pt) pt.innerHTML = (d.win ? "VICTOIRE !" : "GAME OVER")
+          + '<br><span style="font-size:20px;font-weight:600;letter-spacing:.04em">Score : ' + (d.score || 0) + "</span>";
+        playBtn.textContent = "↻ Rejouer";
+        playOverlay.hidden = false;
+        statusEl.textContent = d.win ? "Victoire !" : "Partie terminée.";
+        fetch("/api/results", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            game: "newCapman", mode: "league",
+            win: !!d.win, score: d.score || 0,
+            durationMs: Date.now() - startMs,
+            devUses: window.__ARK_DEV || 0
+          })
+        }).catch(function () { /* hors-ligne / mongo absent : on ignore */ });
+      });
+
+      // Écran « Jouer » : le moteur crée la partie figée puis émet nc-ready ; on
+      // affiche le bouton, et le clic lance réellement la boucle (Boot.startPlay).
+      var playOverlay = document.getElementById("nc-play");
+      var playBtn     = document.getElementById("nc-play-btn");
+      var playStarted = false;
+      window.addEventListener("nc-ready", function () {
+        playOverlay.hidden = false;
+        statusEl.textContent = "Prêt - clique sur Jouer.";
+      });
+      function doPlay() {
+        if (ended) { window.location.reload(); return; } // Rejouer = nouvelle partie propre
+        if (playStarted) return;
+        playStarted = true;
+        startMs = Date.now();
+        try { if (window.CapManBoot && CapManBoot.me) CapManBoot.me.startPlay(); } catch (e) { console.error(e); }
+        playOverlay.hidden = true;
+        statusEl.textContent = "En jeu…";
+      }
+      playBtn.addEventListener("click", doPlay);
+
+      function bootReady() { return window.CapManBoot && CapManBoot.me; }
+
+      // Bouton DEV : donne une casquette d'invincibilité au héros.
+      var devCapBtn = document.getElementById("nc-dev-cap");
+      if (devCapBtn) devCapBtn.addEventListener("click", function () {
+        if (!playStarted) doPlay(); // s'assure que la partie tourne
+        try { if (bootReady()) CapManBoot.me.devCap(); } catch (e) { console.error(e); }
+      });
+
+      // Boutons DEV : faire apparaître un monstre par type.
+      var spawnBtns = document.querySelectorAll("[data-spawn]");
+      Array.prototype.forEach.call(spawnBtns, function (btn) {
+        btn.addEventListener("click", function () {
+          if (!playStarted) doPlay();
+          try { if (bootReady()) CapManBoot.me.devSpawn(parseInt(btn.getAttribute("data-spawn"), 10)); } catch (e) { console.error(e); }
+        });
+      });
+
+      // Bouton DEV : supprimer tous les monstres de la partie en cours.
+      var killBtn = document.getElementById("nc-dev-killbads");
+      if (killBtn) killBtn.addEventListener("click", function () {
+        try { if (bootReady()) CapManBoot.me.devKillBads(); } catch (e) { console.error(e); }
+      });
+
+      try {
+        var canvas = document.getElementById("nc-canvas");
+        // eslint-disable-next-line no-new
+        new CapManBoot(canvas);
+        statusEl.textContent = "PixiJS v" + PIXI.VERSION + " - moteur Haxe chargé.";
+      } catch (err) {
+        statusEl.textContent = "Erreur au démarrage : " + err;
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>
